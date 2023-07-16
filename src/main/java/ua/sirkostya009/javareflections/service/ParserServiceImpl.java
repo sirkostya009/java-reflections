@@ -8,7 +8,7 @@ import ua.sirkostya009.javareflections.annotation.NameContains;
 import ua.sirkostya009.javareflections.annotation.Parse;
 import ua.sirkostya009.javareflections.annotation.Parser;
 import ua.sirkostya009.javareflections.model.Customer;
-import ua.sirkostya009.javareflections.parser.SampleParser;
+import ua.sirkostya009.javareflections.utils.Utils;
 
 import java.io.FileWriter;
 import java.io.IOException;
@@ -19,67 +19,89 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.nio.file.Files;
 import java.util.*;
-import java.util.stream.IntStream;
 
-import static java.util.stream.Collectors.groupingBy;
-import static java.util.stream.Collectors.toMap;
+import static java.util.stream.Collectors.*;
 
 @Service
 public class ParserServiceImpl implements ParserService {
 
-    private final Map<Customer, Map<Integer, Map<Parser, List<Method>>>> parsers;
+    private final Map<Customer, Map<String, List<Method>>> methods;
+    private final Map<Customer, Map<String, Object>> parsers;
 
-    private final Map.Entry<SampleParser, List<Method>> sampleParserMethods;
+    public ParserServiceImpl(ApplicationContext context) {
+        var beans = context.getBeansWithAnnotation(Parser.class).values();
 
-    public ParserServiceImpl(ApplicationContext context, SampleParser parser) {
-        parsers = Arrays.stream(context.getBeanNamesForAnnotation(Parser.class))
-                .map(name -> {
-                    var bean = context.getBean(name).getClass();
-                    return Map.entry(
-                            bean.getAnnotation(Parser.class),
-                            Arrays.stream(bean.getMethods())
-                                    .filter(method -> method.isAnnotationPresent(Parse.class))
-                                    .sorted(Comparator.comparing(method -> method.getAnnotation(Parse.class).pass()))
-                                    .toList()
-                    );
-                })
+        parsers = beans.stream()
+                .map(bean -> Map.entry(Utils.generateId(bean.getClass().getAnnotation(Parser.class)), bean))
                 .collect(groupingBy(
-                        entry -> entry.getKey().customer(),
-                        groupingBy(
-                                entry -> Objects.hash(entry.getKey().name(), entry.getKey().customer()),
-                                toMap(Map.Entry::getKey, Map.Entry::getValue)
-                        )
+                        entry -> entry.getValue().getClass().getAnnotation(Parser.class).customer(),
+                        toMap(Map.Entry::getKey, Map.Entry::getValue)
                 ));
 
-        this.sampleParserMethods = Map.entry(parser, Arrays.stream(parser.getClass().getMethods())
-                .filter(method -> method.isAnnotationPresent(Parse.class))
-                .toList());
+        // grouping by id
+        methods = beans.stream()
+                .map(bean -> Map.entry(
+                        bean.getClass().getAnnotation(Parser.class),
+                        Arrays.stream(bean.getClass().getMethods())
+                                .filter(method -> method.isAnnotationPresent(Parse.class))
+                                .sorted(Comparator.comparing(method -> method.getAnnotation(Parse.class).pass()))
+                ))
+                .collect(groupingBy(
+                        entry -> entry.getKey().customer(), // grouping by customer
+                        groupingBy(
+                                entry -> Utils.generateId(entry.getKey()), // grouping by id
+                                flatMapping(Map.Entry::getValue, toList()) // collecting Parse methods to a list
+                        )
+                ));
     }
 
     @Override
-    public byte[] parse(List<MultipartFile> files) throws IOException {
-        var temp = Files.createTempFile(UUID.randomUUID().toString(), ".csv").toFile();
-        @Cleanup var writer = new CSVWriter(temp);
+    public byte[] parse(Customer customer, String id, List<MultipartFile> files) throws IOException {
+        if (!methods.containsKey(customer)) {
+            throw new RuntimeException("Customer " + customer + " not present");
+        }
 
-        var parameters = sampleParserMethods.getValue().stream()
+        if (!methods.get(customer).containsKey(id)) {
+            throw new RuntimeException("Parse methods for " + customer + ", " + id + " are absent");
+        }
+
+        var parseMethods = methods.get(customer).get(id);
+        var parser = parsers.get(customer).get(id);
+
+        var temp = Files.createTempFile(UUID.randomUUID().toString(), ".csv");
+        @Cleanup var writer = new CSVWriter(temp.toFile());
+
+        var parameters = parseMethods.stream()
                 .map(method -> Arrays.stream(method.getParameters())
-                        .map(parameter -> injectedParameter(parameter, files, writer))
+                        .map(parameter -> injectedParameter(parameter, customer, id, files, writer))
                         .toArray())
                 .toList();
 
-        IntStream.range(0, parameters.size())
-                .forEach(i -> {
-                    try {
-                        sampleParserMethods.getValue().get(i).invoke(sampleParserMethods.getKey(), parameters.get(i));
-                    } catch (IllegalAccessException | InvocationTargetException e) {
-                        throw new RuntimeException(e);
-                    }
-                });
+        for (var i = 0; i < parseMethods.size(); i++) {
+            try {
+                parseMethods.get(i).invoke(parser, parameters.get(i));
+            } catch (IllegalAccessException e) {
+                throw new RuntimeException("Failed to invoke parsing method", e);
+            } catch (InvocationTargetException e) {
+                throw new RuntimeException("Failed to parse. Message: " + e.getMessage(), e);
+            }
+        }
 
-        return null;
+        return Files.readAllBytes(temp);
     }
 
-    private Object injectedParameter(Parameter parameter, List<MultipartFile> files, CSVWriter writer) {
+    @Override
+    public List<Parser> getForCustomer(Customer customer) {
+        return parsers.get(customer).values().stream()
+                .map(object -> object.getClass().getAnnotation(Parser.class))
+                .toList();
+    }
+
+    private Object injectedParameter(Parameter parameter,
+                                     Customer customer,
+                                     String id,
+                                     List<MultipartFile> files,
+                                     CSVWriter writer) {
         var nameContains = parameter.getAnnotation(NameContains.class);
 
         if (nameContains != null) {
@@ -92,15 +114,25 @@ public class ParserServiceImpl implements ParserService {
         }
 
         var type = parameter.getType();
+        var label = parameter.getName();
 
-        if (type.equals(Writer.class)
-                || type.equals(OutputStreamWriter.class)
-                || type.equals(FileWriter.class)
-                || type.equals(CSVWriter.class))
+        if (type == Writer.class
+                || type == OutputStreamWriter.class
+                || type == FileWriter.class
+                || type == CSVWriter.class) {
             return writer;
+        }
 
-        if (type.equals(List.class)) {
+        if (type.isAssignableFrom(files.getClass())) {
             return files;
+        }
+
+        if (type == String.class && "id".equalsIgnoreCase(label)) {
+            return id;
+        }
+
+        if (type == Customer.class) {
+            return customer;
         }
 
         return null;
