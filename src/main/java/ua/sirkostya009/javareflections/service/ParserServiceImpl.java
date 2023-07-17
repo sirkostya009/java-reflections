@@ -105,7 +105,8 @@ public class ParserServiceImpl implements ParserService {
         if (nameContains != null) {
             var value = nameContains.value();
             var found = files.stream()
-                    .filter(file -> file.getOriginalFilename() != null && file.getOriginalFilename().contains(value))
+                    .filter(file -> file.getName().contains(value)
+                                || (file.getOriginalFilename() != null && file.getOriginalFilename().contains(value)))
                     .findAny()
                     .orElse(null);
 
