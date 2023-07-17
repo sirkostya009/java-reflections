@@ -13,9 +13,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import ua.sirkostya009.javareflections.model.Customer;
-import ua.sirkostya009.javareflections.model.ParserDto;
 import ua.sirkostya009.javareflections.service.ParserService;
 
+import java.util.Collection;
 import java.util.List;
 
 @Slf4j
@@ -27,19 +27,19 @@ public class ParserController {
     private final ParserService service;
 
     @GetMapping("/{customer}")
-    public List<ParserDto> getForCustomer(@PathVariable("customer") Customer customer) {
+    public Collection<String> getForCustomer(@PathVariable("customer") Customer customer) {
         log.info("Getting parser for {}", customer);
         return service.getForCustomer(customer);
     }
 
-    @PostMapping("/{customer}/{id}")
+    @PostMapping("/{customer}/{name}")
     public byte[] parse(@PathVariable Customer customer,
-                        @PathVariable String id,
+                        @PathVariable String name,
                         @RequestParam("files") List<MultipartFile> files) throws Exception {
         var start = System.currentTimeMillis();
-        log.info("Parsing files {} using parser {}:{}", files.stream().map(MultipartFile::getOriginalFilename).toList(), customer, id);
+        log.info("Parsing files {} using parser {}:{}", files.stream().map(MultipartFile::getOriginalFilename).toList(), customer, name);
 
-        var parsed = service.parse(customer, id, files);
+        var parsed = service.parse(customer, name, files);
 
         var finish = System.currentTimeMillis();
         log.info("Finished parsing in {} ms", finish - start);

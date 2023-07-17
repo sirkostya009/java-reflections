@@ -7,7 +7,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.multipart.MultipartFile;
 import ua.sirkostya009.javareflections.model.Customer;
-import ua.sirkostya009.javareflections.model.ParserDto;
 import ua.sirkostya009.javareflections.service.ParserService;
 
 import java.io.File;
@@ -15,6 +14,7 @@ import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -31,28 +31,38 @@ class AutomatedParserTests {
     void testAllParsers() {
         var parsers = getParsers();
 
-        parsers.forEach((customer, ids) -> ids.forEach(id -> {
+        parsers.forEach((customer, names) -> names.forEach(name -> {
             try {
-                parserService.parse(customer, id, getFiles(customer, id));
+                var files = getFiles(customer, name);
+                var expected = getResult(files);
+                var actual = parserService.parse(customer, name, files);
+                assert Arrays.equals(expected.getBytes(), actual);
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
         }));
     }
 
-    private Map<Customer, List<String>> getParsers() {
+    private Map<Customer, Collection<String>> getParsers() {
         return Arrays.stream(Customer.values())
                 .collect(toMap(Function.identity(),
-                               customer -> parserService.getForCustomer(customer).stream().map(ParserDto::id).toList()));
+                               customer -> parserService.getForCustomer(customer)));
     }
 
-    private List<MultipartFile> getFiles(Customer customer, String id) throws URISyntaxException {
-        var directory = AutomatedParserTests.class.getResource("/" + customer + "/" + id + "/");
+    private List<MultipartFile> getFiles(Customer customer, String name) throws URISyntaxException {
+        var directory = AutomatedParserTests.class.getResource("/" + customer + "/" + name + "/");
         assert directory != null;
         var files = Path.of(directory.toURI()).toFile().listFiles();
 
         assert files != null;
         return Arrays.stream(files).map(this::toMultipart).toList();
+    }
+
+    private MultipartFile getResult(List<MultipartFile> files) {
+        return files.stream()
+                .filter(file -> file.getName().toLowerCase().contains("result"))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("No result file found in " + files));
     }
 
     @SneakyThrows

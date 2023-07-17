@@ -11,7 +11,6 @@ import ua.sirkostya009.javareflections.annotation.NameContains;
 import ua.sirkostya009.javareflections.annotation.Parse;
 import ua.sirkostya009.javareflections.annotation.Parser;
 import ua.sirkostya009.javareflections.model.Customer;
-import ua.sirkostya009.javareflections.model.ParserDto;
 
 import java.io.*;
 import java.lang.reflect.Method;
@@ -40,7 +39,7 @@ public class ParserServiceImpl implements ParserService {
                                 .toList()
                 ))
                 .collect(groupingBy(entry -> entry.getKey().getClass().getAnnotation(Parser.class).customer(),
-                                    groupingBy(entry -> generateId(entry.getKey()),
+                                    groupingBy(entry -> entry.getKey().getClass().getAnnotation(Parser.class).name(),
                                                reducing(Map.entry("", List.of()),
                                                         ($, actual) -> actual))));
 
@@ -48,16 +47,16 @@ public class ParserServiceImpl implements ParserService {
     }
 
     @Override
-    public byte[] parse(Customer customer, String id, List<MultipartFile> files) throws Exception {
+    public byte[] parse(Customer customer, String name, List<MultipartFile> files) throws Exception {
         if (!map.containsKey(customer)) {
             throw new RuntimeException("Customer " + customer + " not present");
         }
 
-        if (!map.get(customer).containsKey(id)) {
-            throw new RuntimeException("Parse methods for " + customer + ", " + id + " are absent");
+        if (!map.get(customer).containsKey(name)) {
+            throw new RuntimeException("Parse methods for " + customer + ", " + name + " are absent");
         }
 
-        var entry = map.get(customer).get(id);
+        var entry = map.get(customer).get(name);
         var object = entry.getKey();
         var parser = object.getClass().getAnnotation(Parser.class);
         var parseMethods = entry.getValue();
@@ -68,7 +67,7 @@ public class ParserServiceImpl implements ParserService {
 
         var parameters = parseMethods.stream()
                 .map(method -> Arrays.stream(method.getParameters())
-                        .map(parameter -> injectParameter(parameter, parser, id, files, writer, printer))
+                        .map(parameter -> injectParameter(parameter, parser, name, files, writer, printer))
                         .toArray())
                 .toList();
 
@@ -81,22 +80,17 @@ public class ParserServiceImpl implements ParserService {
     }
 
     @Override
-    public List<ParserDto> getForCustomer(Customer customer) {
+    public Collection<String> getForCustomer(Customer customer) {
         if (!map.containsKey(customer)) {
             throw new RuntimeException("Customer " + customer + " not found");
         }
 
-        return map.get(customer).entrySet().stream()
-                .map(entry -> new ParserDto(
-                        entry.getKey(),
-                        entry.getValue().getKey().getClass().getAnnotation(Parser.class).name()
-                ))
-                .toList();
+        return map.get(customer).keySet();
     }
 
     private Object injectParameter(Parameter parameter,
                                    Parser parser,
-                                   String id,
+                                   String name,
                                    List<MultipartFile> files,
                                    FileWriter writer,
                                    CSVPrinter printer) {
@@ -148,7 +142,7 @@ public class ParserServiceImpl implements ParserService {
 
         if (type == String.class) {
             if ("id".equalsIgnoreCase(label))
-                return id;
+                return name;
 
             if ("name".equalsIgnoreCase(label))
                 return parser.name();
@@ -161,28 +155,10 @@ public class ParserServiceImpl implements ParserService {
         if (type == CSVFormat.class) {
             var qualifier = parameter.getAnnotation(Qualifier.class);
 
-            if (qualifier != null) {
-                return csvFormats.get(qualifier.value());
-            } else {
-                return csvFormats.get(label);
-            }
+            return csvFormats.get(qualifier != null ? qualifier.value() : label);
         }
 
         return null;
-    }
-
-    public String generateId(Object object) {
-        var parser = object.getClass().getAnnotation(Parser.class);
-        var customerFirstCharCode = (int) parser.customer().name().charAt(0);
-        var parserNameFirstCharCode = (int) parser.name().charAt(0);
-
-        return String.format(
-                "%d-%d-%d-%d",
-                customerFirstCharCode,
-                parser.customer().name().length(),
-                parserNameFirstCharCode,
-                parser.name().length()
-        );
     }
 
     private CSVParser toParser(MultipartFile file, String sourceFormat) {

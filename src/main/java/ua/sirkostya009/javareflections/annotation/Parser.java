@@ -7,11 +7,7 @@ import java.lang.annotation.*;
 
 /**
  * Parser is spring-component annotation meant for annotating classes that have methods annotated with @Parse.
- * Parser-annotated classes are scanned for Parse methods, are generated an ID to,
- * and invoked procedurally (e.g. from first pass to last).
- * <p>
- * ID is generated using parser's customer and name methods, split like this: customer[0]-customer.len-name[0]-name-len,
- * where [0] is the first char of the string.
+ * Parser-annotated classes are scanned for Parse methods that are invoked procedurally (e.g. from first pass to last).
  */
 @Component
 @Documented
