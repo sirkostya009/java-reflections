@@ -13,4 +13,8 @@ public @interface Parser {
     Customer customer();
 
     String name();
+
+    String sourceFormatBeanQualifier() default "default";
+
+    String resultFormatBeanQualifier() default "default";
 }

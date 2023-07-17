@@ -2,6 +2,9 @@ package ua.sirkostya009.javareflections.controller;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.ErrorResponse;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -13,7 +16,6 @@ import ua.sirkostya009.javareflections.model.Customer;
 import ua.sirkostya009.javareflections.model.ParserDto;
 import ua.sirkostya009.javareflections.service.ParserService;
 
-import java.io.IOException;
 import java.util.List;
 
 @Slf4j
@@ -21,18 +23,19 @@ import java.util.List;
 @RequiredArgsConstructor
 @RequestMapping("/api/parser")
 public class ParserController {
+
     private final ParserService service;
 
     @GetMapping("/{customer}")
     public List<ParserDto> getForCustomer(@PathVariable("customer") Customer customer) {
         log.info("Getting parser for {}", customer);
-        return service.getForCustomer(customer).stream().map(ParserDto::of).toList();
+        return service.getForCustomer(customer);
     }
 
     @PostMapping("/{customer}/{id}")
     public byte[] parse(@PathVariable Customer customer,
                         @PathVariable String id,
-                        @RequestParam("files") List<MultipartFile> files) throws IOException {
+                        @RequestParam("files") List<MultipartFile> files) throws Exception {
         var start = System.currentTimeMillis();
         log.info("Parsing files {} using parser {}:{}", files.stream().map(MultipartFile::getOriginalFilename).toList(), customer, id);
 
@@ -43,4 +46,11 @@ public class ParserController {
 
         return parsed;
     }
+
+    @ExceptionHandler(Exception.class)
+    public ErrorResponse handle(Exception e) {
+        log.error("Exception thrown: {}", e.getMessage(), e);
+        return ErrorResponse.create(e, HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
+    }
+
 }
