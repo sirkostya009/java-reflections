@@ -15,6 +15,7 @@ import ua.sirkostya009.javareflections.model.Customer;
 import java.io.*;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
+import java.lang.reflect.ParameterizedType;
 import java.nio.file.Files;
 import java.util.*;
 
@@ -126,8 +127,18 @@ public class ParserServiceImpl implements ParserService {
             return printer;
         }
 
-        if (type.isAssignableFrom(files.getClass())) {
-            return files;
+        if (Iterable.class.isAssignableFrom(type)) {
+            var generic = ((ParameterizedType) parameter.getParameterizedType()).getActualTypeArguments()[0];
+
+            if (generic.getTypeName().equals(CSVParser.class.getTypeName())) {
+                return files.stream()
+                        .map(file -> toParser(file, parser.sourceFormatBeanQualifier()))
+                        .toList();
+            }
+
+            if (generic.getTypeName().equals(MultipartFile.class.getTypeName())) {
+                return files;
+            }
         }
 
         if (type == MultipartFile[].class) {
