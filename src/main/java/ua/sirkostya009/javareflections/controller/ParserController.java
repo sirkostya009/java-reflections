@@ -36,8 +36,8 @@ public class ParserController {
     public byte[] parse(@PathVariable Customer customer,
                         @PathVariable String name,
                         @RequestParam("files") List<MultipartFile> files) throws Exception {
-        var start = System.currentTimeMillis();
         log.info("Parsing files {} using parser {}:{}", files.stream().map(MultipartFile::getOriginalFilename).toList(), customer, name);
+        var start = System.currentTimeMillis();
 
         var parsed = service.parse(customer, name, files);
 

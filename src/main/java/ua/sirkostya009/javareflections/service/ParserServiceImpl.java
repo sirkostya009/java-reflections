@@ -1,5 +1,6 @@
 package ua.sirkostya009.javareflections.service;
 
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVPrinter;
@@ -12,16 +13,25 @@ import ua.sirkostya009.javareflections.annotation.Parse;
 import ua.sirkostya009.javareflections.annotation.Parser;
 import ua.sirkostya009.javareflections.model.Customer;
 
-import java.io.*;
+import java.io.Closeable;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.lang.reflect.ParameterizedType;
 import java.nio.file.Files;
-import java.util.*;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 import static java.util.stream.Collectors.groupingBy;
 import static java.util.stream.Collectors.reducing;
 
+@Slf4j
 @Service
 public class ParserServiceImpl implements ParserService {
 
@@ -64,7 +74,7 @@ public class ParserServiceImpl implements ParserService {
 
         var temp = Files.createTempFile(UUID.randomUUID().toString(), ".csv");
         var writer = new FileWriter(temp.toFile());
-        var printer = new CSVPrinter(writer, csvFormats.get(parser.resultFormatBeanQualifier()));
+        var printer = csvFormats.get(parser.resultFormat()).print(writer);
 
         var parameters = parseMethods.stream()
                 .map(method -> Arrays.stream(method.getParameters())
@@ -75,6 +85,8 @@ public class ParserServiceImpl implements ParserService {
         for (var i = 0; i < parseMethods.size(); i++) {
             parseMethods.get(i).invoke(object, parameters.get(i));
         }
+
+        parameters.forEach(objects -> Arrays.stream(objects).forEach(this::closeCloseables));
 
         printer.close(true);
         return Files.readAllBytes(temp);
@@ -96,28 +108,34 @@ public class ParserServiceImpl implements ParserService {
                                    FileWriter writer,
                                    CSVPrinter printer) {
         var nameContains = parameter.getAnnotation(NameContains.class);
+        var type = parameter.getType();
 
         if (nameContains != null) {
             var value = nameContains.value();
+
+            if (Collection.class.isAssignableFrom(type)) {
+                var filteredFiles = files.stream()
+                        .filter(file -> file.getName().contains(value)
+                                || (file.getOriginalFilename() != null && file.getOriginalFilename().contains(value)))
+                        .toList();
+
+                return toList(parameter, filteredFiles, parser);
+            }
+
             var found = files.stream()
                     .filter(file -> file.getName().contains(value)
                                 || (file.getOriginalFilename() != null && file.getOriginalFilename().contains(value)))
                     .findAny()
                     .orElse(null);
 
-            var type = parameter.getType();
-
             if (type == MultipartFile.class) {
                 return found;
             }
 
             if (type == CSVParser.class) {
-                return toParser(found, parser.sourceFormatBeanQualifier());
+                return found != null ? toParser(found, parser.sourceFormat()) : null;
             }
         }
-
-        var type = parameter.getType();
-        var label = parameter.getName();
 
         if (type.isAssignableFrom(writer.getClass())) {
             return writer;
@@ -128,17 +146,7 @@ public class ParserServiceImpl implements ParserService {
         }
 
         if (Iterable.class.isAssignableFrom(type)) {
-            var generic = ((ParameterizedType) parameter.getParameterizedType()).getActualTypeArguments()[0];
-
-            if (generic.getTypeName().equals(CSVParser.class.getTypeName())) {
-                return files.stream()
-                        .map(file -> toParser(file, parser.sourceFormatBeanQualifier()))
-                        .toList();
-            }
-
-            if (generic.getTypeName().equals(MultipartFile.class.getTypeName())) {
-                return files;
-            }
+            return toList(parameter, files, parser);
         }
 
         if (type == MultipartFile[].class) {
@@ -146,10 +154,10 @@ public class ParserServiceImpl implements ParserService {
         }
 
         if (type == CSVParser[].class) {
-            return files.stream()
-                    .map(file -> toParser(file, parser.sourceFormatBeanQualifier()))
-                    .toArray(CSVParser[]::new);
+            return toParser(files, parser.sourceFormat()).toArray(CSVParser[]::new);
         }
+
+        var label = parameter.getName();
 
         if (type == String.class) {
             if ("id".equalsIgnoreCase(label))
@@ -172,13 +180,39 @@ public class ParserServiceImpl implements ParserService {
         return null;
     }
 
+    private void closeCloseables(Object object) {
+        if (object instanceof Closeable closeable) {
+            try {
+                closeable.close();
+            } catch (IOException ignored) {
+                log.warn("Failed to close closeable: {}", closeable);
+            }
+        }
+    }
+
+    private Object toList(Parameter parameter, List<MultipartFile> files, Parser parser) {
+        var generic = ((ParameterizedType) parameter.getParameterizedType()).getActualTypeArguments()[0];
+
+        if (generic.getTypeName().equals(CSVParser.class.getTypeName())) {
+            return toParser(files, parser.sourceFormat());
+        }
+
+        if (generic.getTypeName().equals(MultipartFile.class.getTypeName())) {
+            return files;
+        }
+
+        return null;
+    }
+
+    private List<CSVParser> toParser(List<MultipartFile> files, String sourceFormat) {
+        return files.stream().map(file -> toParser(file, sourceFormat)).toList();
+    }
+
     private CSVParser toParser(MultipartFile file, String sourceFormat) {
         try {
-            return file != null
-                    ? CSVParser.parse(new InputStreamReader(file.getInputStream()), csvFormats.get(sourceFormat))
-                    : null;
+            return csvFormats.get(sourceFormat).parse(new InputStreamReader(file.getInputStream()));
         } catch (IOException e) {
-            throw new RuntimeException("Failed to create parser for file");
+            throw new RuntimeException("Failed to create parser for file " + file.getOriginalFilename());
         }
     }
 

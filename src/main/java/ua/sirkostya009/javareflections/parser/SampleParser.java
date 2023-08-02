@@ -1,12 +1,10 @@
 package ua.sirkostya009.javareflections.parser;
 
 import jakarta.annotation.PostConstruct;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVPrinter;
-import org.apache.commons.csv.CSVRecord;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.web.multipart.MultipartFile;
@@ -14,7 +12,6 @@ import ua.sirkostya009.javareflections.annotation.NameContains;
 import ua.sirkostya009.javareflections.annotation.Parse;
 import ua.sirkostya009.javareflections.annotation.Parser;
 import ua.sirkostya009.javareflections.model.Customer;
-import ua.sirkostya009.javareflections.service.EmptyService;
 
 import java.io.IOException;
 import java.io.Writer;
@@ -22,16 +19,13 @@ import java.util.Arrays;
 import java.util.List;
 
 @Slf4j
-@RequiredArgsConstructor
 @Parser(
         customer = Customer.TEST,
         name = "Sample Parser",
-        sourceFormatBeanQualifier = "sampleSourceFormat",
-        resultFormatBeanQualifier = "sampleResultFormat"
+        sourceFormat = "sampleSourceFormat",
+        resultFormat = "sampleResultFormat"
 )
 public class SampleParser {
-
-    private final EmptyService emptyService;
 
     @Bean
     public CSVFormat sampleResultFormat() {
@@ -45,7 +39,7 @@ public class SampleParser {
 
     @PostConstruct
     public void init() {
-        log.info("@PostConstruct called; emptyService: {}", emptyService);
+        log.info("@PostConstruct called");
     }
 
     @Parse
@@ -58,20 +52,17 @@ public class SampleParser {
     public void pass2(@NameContains("2") CSVParser parser,
                       CSVPrinter printer,
                       String id,
-                      @Qualifier("sampleSourceFormat") CSVFormat sourceFormat) throws IOException {
-        parser.stream()
-                .map(CSVRecord::values)
-                .forEach(values -> {
-                    try {
-                        printer.printRecord((Object[]) values);
-                    } catch (IOException e) {
-                        throw new RuntimeException(e);
-                    }
-                });
+                      @Qualifier("sampleSourceFormat") CSVFormat sourceFormat) {
+        parser.forEach(record -> {
+            try {
+                printer.printRecord((Object[]) record.values());
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        });
         log.info("pass 2, id: {}", id);
         log.info("pass 2, headers: {}", parser.getHeaderNames());
         log.info("pass 2, source format: {}", sourceFormat);
-        parser.close(); // IMPORTANT! Close CSVParser after you're done working with it
     }
 
     @Parse(pass = 3)
@@ -79,8 +70,6 @@ public class SampleParser {
         log.info("Finished parsing");
         writer.write("you got the cuh");
         log.info("Parsers: {}", Arrays.stream(parsers).flatMap(CSVParser::stream).toList());
-        for (var parser : parsers)
-            parser.close();
     }
 
 }

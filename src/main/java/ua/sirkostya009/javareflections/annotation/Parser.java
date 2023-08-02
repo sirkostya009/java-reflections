@@ -27,10 +27,10 @@ public @interface Parser {
     /**
      * Bean qualifier for CSVFormat for source files.
      */
-    String sourceFormatBeanQualifier() default "default";
+    String sourceFormat() default "default";
 
     /**
      * Bean qualifier for CSVFormat for result files.
      */
-    String resultFormatBeanQualifier() default "default";
+    String resultFormat() default "default";
 }

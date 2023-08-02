@@ -13,10 +13,7 @@ import java.io.File;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.function.Function;
 
 import static java.util.stream.Collectors.toMap;
@@ -46,23 +43,28 @@ class AutomatedParserTests {
     private Map<Customer, Collection<String>> getParsers() {
         return Arrays.stream(Customer.values())
                 .collect(toMap(Function.identity(),
-                               customer -> parserService.getForCustomer(customer)));
+                               parserService::getForCustomer));
     }
 
     private List<MultipartFile> getFiles(Customer customer, String name) throws URISyntaxException {
         var directory = AutomatedParserTests.class.getResource("/" + customer + "/" + name + "/");
         assert directory != null;
-        var files = Path.of(directory.toURI()).toFile().listFiles();
 
+        var files = Path.of(directory.toURI()).toFile().listFiles();
         assert files != null;
-        return Arrays.stream(files).map(this::toMultipart).toList();
+
+        return new ArrayList<>(Arrays.stream(files).map(this::toMultipart).toList());
     }
 
     private MultipartFile getResult(List<MultipartFile> files) {
-        return files.stream()
+        var result = files.stream()
                 .filter(file -> file.getName().toLowerCase().contains("result"))
                 .findFirst()
                 .orElseThrow(() -> new RuntimeException("No result file found in " + files));
+
+        files.remove(result);
+
+        return result;
     }
 
     @SneakyThrows
